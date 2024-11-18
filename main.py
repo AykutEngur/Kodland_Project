@@ -1,22 +1,20 @@
 from flask import Flask, render_template, request, redirect
 import mysql.connector
 
-
-
-app =  Flask(__name__)
+app = Flask(__name__)
 
 my_database = mysql.connector.connect(
-    host = "AykutEngur.mysql.pythonanywhere-services.com",
-    user = "AykutEngur",
-    passwd= "Aykut1323",
-    database = "AykutEngur$kodland_project"
+    host="AykutEngur.mysql.pythonanywhere-services.com",
+    user="AykutEngur",
+    passwd="Aykut1323",
+    database="AykutEngur$kodland_project"
 )
-
-
 
 @app.route('/', methods=['GET', 'POST'])
 def home():
+    current_score = None
     best_score = None
+
     if request.method == "POST":
         username = request.form["username"]
         answers = {
@@ -29,7 +27,8 @@ def home():
         if not username or not all(answers.values()):
             return render_template("index.html", error="Please fill out all fields.")
 
-        total_score = 0
+        # Calculate the current score
+        current_score = 0
         correct_answers = {
             'question1': "C",
             'question2': "A",
@@ -39,43 +38,38 @@ def home():
 
         for question, answer in answers.items():
             if answer == correct_answers[question]:
-                total_score += 25
+                current_score += 25
 
         my_cursor = my_database.cursor()
 
         # Fetch the current highest score for the username
         my_cursor.execute("""
-            SELECT MAX(total_score) FROM kodland_database_table WHERE username = %s
+            SELECT total_score FROM kodland_database_table WHERE username = %s ORDER BY total_score DESC LIMIT 1
         """, (username,))
-        max_score = my_cursor.fetchone()[0]
+        result = my_cursor.fetchone()
+        best_score = result[0] if result else 0
 
-        # If no existing score, or new score is higher, update the database
-        if max_score is None or total_score > max_score:
-            if max_score is None:
-                # Insert new record if no existing score
+        # Update the database if the current score is higher than the best score
+        if current_score > best_score:
+            if best_score == 0:  # No existing record, insert a new one
                 my_cursor.execute("""
                     INSERT INTO kodland_database_table (username, question_1, question_2, question_3, question_4, total_score)
                     VALUES (%s, %s, %s, %s, %s, %s)
-                """, (username, answers['question1'], answers['question2'], answers['question3'], answers['question4'], total_score))
-            else:
-                # Update existing record with higher score
+                """, (username, answers['question1'], answers['question2'], answers['question3'], answers['question4'], current_score))
+            else:  # Update the existing record with the new best score
                 my_cursor.execute("""
                     UPDATE kodland_database_table
                     SET question_1 = %s, question_2 = %s, question_3 = %s, question_4 = %s, total_score = %s
                     WHERE username = %s
-                """, (answers['question1'], answers['question2'], answers['question3'], answers['question4'], total_score, username))
+                """, (answers['question1'], answers['question2'], answers['question3'], answers['question4'], current_score, username))
 
-        # Commit changes
+            best_score = current_score  # Update the best score to the current score
+
+        # Commit the changes
         my_database.commit()
-
-        # Fetch the updated highest score
-        my_cursor.execute("""
-            SELECT MAX(total_score) FROM kodland_database_table WHERE username = %s
-        """, (username,))
-        best_score = my_cursor.fetchone()[0]
-
         my_cursor.close()
 
-        return render_template("index.html", best_score=f" ({best_score}%)", username=username)
+        # Render the template with both scores
+        return render_template("index.html", current_score=current_score, best_score=best_score, username=username)
 
-    return render_template("index.html", best_score=best_score)
+    return render_template("index.html", current_score=current_score, best_score=best_score)
